@@ -9,14 +9,17 @@ It simplifies the typical two-step interaction pattern — where a POST request 
 ## ✨ Features
 
 - 🌐 Connect to any Hugging Face Space endpoint  
-- 🔁 Automatically handles event ID + result fetching  
+- 🔁 Handles event ID + result fetching  
 - 🔐 Supports custom headers and bearer tokens  
 - ⚙️ Generic over input and output types  
 - 🧼 Minimal, ergonomic API — just call `.Do()` and you're done  
+- 🛡️ No dependencies outside the standard library
 
 ---
 
 ## 🚀 Example
+
+Let's say your inference URL is `https://your-space.hf.space/gradio_api/call/fn`
 
 ```go
 package main
@@ -28,11 +31,10 @@ import (
 )
 
 func main() {
-	space := hfspace.NewHFSpace[any, string]("https://your-space.hf.space").
-		WithBearerToken("your-token").
-		WithUserAgent("hfspace-client")
+	space := hfspace.NewHFSpace[any, any]("your-space").
+		WithBearerToken("your-token")
 
-	output, err := space.Do("gradio_api/call/fn", param1, param2, param3)
+	output, err := space.Do("/fn", param1, param2, param3)
 	if err != nil {
 		panic(err)
 	}
