@@ -2,6 +2,7 @@ package hfspace
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 
 // HFSpace represents a client to a Hugging Face Space.
 // I is the input type, O is the output type. Use `any` if there are different types.
+// Use NewHFSpace() to create an instance.
 type HFSpace[I any, O any] struct {
 	BaseURL string
 	Headers map[string]string
@@ -137,4 +139,85 @@ func (h *HFSpace[I, O]) Do(endpoint string, params ...I) ([]O, error) {
 	}
 
 	return Result, nil
+}
+
+// Gradio-compatible FileData structure.
+// Usually used for images, audio, video, etc.
+type FileData struct {
+	Path     string         `json:"path,omitempty"`
+	URL      string         `json:"url,omitempty"`
+	Size     int64          `json:"size,omitempty"`
+	OrigName string         `json:"orig_name,omitempty"`
+	MimeType string         `json:"mime_type,omitempty"`
+	IsStream bool           `json:"is_stream"`
+	Meta     map[string]any `json:"meta,omitempty"`
+}
+
+// Create FileData from bytes.
+func HandleBytes(fileData []byte, filename, mimeType string) *FileData {
+	// Encode the data to base64
+	base64Data := base64.StdEncoding.EncodeToString(fileData)
+
+	// Create Data URI format
+	dataURI := fmt.Sprintf("data:%s;base64,%s", mimeType, base64Data)
+	// dataURI := base64.StdEncoding.EncodeToString(fileData) // Raw base64?
+
+	// Get file size
+	size := int64(len(fileData))
+
+	return &FileData{
+		Path:     "",
+		URL:      dataURI,
+		Size:     size,
+		OrigName: filename,
+		MimeType: mimeType,
+		IsStream: false,
+		Meta:     nil,
+	}
+}
+
+// Downloads the content from a FileData's HTTPS URL.
+// Use on output FileData.
+func DownloadFileData(fileData *FileData, timeout time.Duration) ([]byte, error) {
+	// Validate input
+	if fileData == nil {
+		return nil, fmt.Errorf("fileData is nil")
+	}
+
+	if fileData.URL == "" {
+		return nil, fmt.Errorf("URL is empty")
+	}
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: timeout * time.Second,
+	}
+
+	// Create the request
+	req, err := http.NewRequest("GET", fileData.URL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Send the request
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download file: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected HTTP status: %d %s", resp.StatusCode, resp.Status)
+	}
+
+	// Read the response body
+	content, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+	if len(content) == 0 {
+		return nil, fmt.Errorf("downloaded content is empty")
+	}
+
+	return content, nil
 }
