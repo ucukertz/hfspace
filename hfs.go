@@ -1,4 +1,4 @@
-package hfspace
+package hfs
 
 import (
 	"bytes"
@@ -13,16 +13,16 @@ import (
 
 // HFSpace represents a client to a Hugging Face Space.
 // I is the input type, O is the output type. Use `any` if there are different types.
-// Use NewHFSpace() to create an instance.
+// Use NewHfs() to create an instance.
 type HFSpace[I any, O any] struct {
 	BaseURL string
 	Headers map[string]string
 	client  *http.Client
 }
 
-// NewHFSpace creates a new HFSpace with a default HTTP client.
+// NewHfs creates a new HFSpace with a default HTTP client.
 // I is the input type, O is the output type. Use `any` if there are different types.
-func NewHFSpace[I, O any](Name string) *HFSpace[I, O] {
+func NewHfs[I, O any](Name string) *HFSpace[I, O] {
 	return &HFSpace[I, O]{
 		BaseURL: "https://" + Name + ".hf.space/gradio_api/call",
 		Headers: map[string]string{
@@ -70,12 +70,12 @@ func (h *HFSpace[I, O]) Do(endpoint string, params ...I) ([]O, error) {
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling request body: %w", err)
+		return nil, fmt.Errorf("request body marshall: %w", err)
 	}
 
 	req, err := http.NewRequest("POST", fullURL, bytes.NewBuffer(body))
 	if err != nil {
-		return nil, fmt.Errorf("error creating POST request: %w", err)
+		return nil, fmt.Errorf("post request create: %w", err)
 	}
 	for k, v := range h.Headers {
 		req.Header.Set(k, v)
@@ -83,7 +83,7 @@ func (h *HFSpace[I, O]) Do(endpoint string, params ...I) ([]O, error) {
 
 	resp, err := h.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("POST request failed: %w", err)
+		return nil, fmt.Errorf("post request exec: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -92,7 +92,7 @@ func (h *HFSpace[I, O]) Do(endpoint string, params ...I) ([]O, error) {
 		Eventid string `json:"event_id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&idResp); err != nil {
-		return nil, fmt.Errorf("error decoding event ID response: %w", err)
+		return nil, fmt.Errorf("event ID decode: %w", err)
 	}
 	eventID := idResp.Eventid
 
@@ -101,7 +101,7 @@ func (h *HFSpace[I, O]) Do(endpoint string, params ...I) ([]O, error) {
 
 	getReq, err := http.NewRequest("GET", streamURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("error creating GET request: %w", err)
+		return nil, fmt.Errorf("get request create: %w", err)
 	}
 	for k, v := range h.Headers {
 		getReq.Header.Set(k, v)
@@ -109,13 +109,13 @@ func (h *HFSpace[I, O]) Do(endpoint string, params ...I) ([]O, error) {
 
 	resp2, err := h.client.Do(getReq)
 	if err != nil {
-		return nil, fmt.Errorf("GET request failed: %w", err)
+		return nil, fmt.Errorf("get request send: %w", err)
 	}
 	defer resp2.Body.Close()
 
 	res2, err := io.ReadAll(resp2.Body)
 	if err != nil {
-		return nil, fmt.Errorf("error reading GET response body: %w", err)
+		return nil, fmt.Errorf("get response read: %w", err)
 	}
 
 	lines := strings.Split(string(res2), "\n")
@@ -129,13 +129,13 @@ func (h *HFSpace[I, O]) Do(endpoint string, params ...I) ([]O, error) {
 	}
 
 	if len(dataLine) == 0 {
-		return nil, fmt.Errorf("no data found in response")
+		return nil, fmt.Errorf("no data in response")
 	}
 
 	// Final result
 	var Result []O
 	if err := json.Unmarshal([]byte(dataLine), &Result); err != nil {
-		return nil, fmt.Errorf("error decoding final response: %w", err)
+		return nil, fmt.Errorf("decode final response: %w", err)
 	}
 
 	return Result, nil
@@ -154,34 +154,40 @@ type FileData struct {
 }
 
 // Create FileData from bytes.
-func HandleBytes(fileData []byte, filename, mimeType string) *FileData {
+func ToFileData(fileData []byte, filename, mimeType string) *FileData {
 	// Encode the data to base64
-	base64Data := base64.StdEncoding.EncodeToString(fileData)
-
-	// Create Data URI format
-	dataURI := fmt.Sprintf("data:%s;base64,%s", mimeType, base64Data)
-	// dataURI := base64.StdEncoding.EncodeToString(fileData) // Raw base64?
+	b64 := base64.StdEncoding.EncodeToString(fileData)
 
 	// Get file size
 	size := int64(len(fileData))
 
 	return &FileData{
 		Path:     "",
-		URL:      dataURI,
+		URL:      b64,
 		Size:     size,
 		OrigName: filename,
 		MimeType: mimeType,
 		IsStream: false,
-		Meta:     nil,
+		Meta:     map[string]any{"_type": "gradio.FileData"},
 	}
 }
 
-// Downloads the content from a FileData's HTTPS URL.
+// Check if src is a FileData.
+// Download content from FileData's URL if so.
+func GetFileData(src any) ([]byte, error) {
+	var fd *FileData
+	if err := json.Unmarshal([]byte(fmt.Sprintf("%v", src)), &fd); err != nil {
+		return nil, fmt.Errorf("not filedata: %w", err)
+	}
+	return FileDataDownload(fd, 30*time.Second)
+}
+
+// Download content from a FileData's HTTPS URL.
 // Use on output FileData.
-func DownloadFileData(fileData *FileData, timeout time.Duration) ([]byte, error) {
+func FileDataDownload(fileData *FileData, timeout time.Duration) ([]byte, error) {
 	// Validate input
 	if fileData == nil {
-		return nil, fmt.Errorf("fileData is nil")
+		return nil, fmt.Errorf("filedata is nil")
 	}
 
 	if fileData.URL == "" {
