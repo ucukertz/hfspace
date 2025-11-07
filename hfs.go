@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -153,23 +154,45 @@ type FileData struct {
 	Meta     map[string]any `json:"meta,omitempty"`
 }
 
-// Create FileData from bytes.
-func ToFileData(fileData []byte, filename, mimeType string) *FileData {
-	// Encode the data to base64
-	b64 := base64.StdEncoding.EncodeToString(fileData)
-
-	// Get file size
-	size := int64(len(fileData))
-
+func CreateFileData(url, origName, mimeType string, size int64) *FileData {
 	return &FileData{
 		Path:     "",
-		URL:      b64,
+		URL:      url,
 		Size:     size,
-		OrigName: filename,
+		OrigName: origName,
 		MimeType: mimeType,
 		IsStream: false,
 		Meta:     map[string]any{"_type": "gradio.FileData"},
 	}
+}
+
+// Create FileData from bytes, base64 string, or URL.
+func ToFileData[T []byte | string](fileData T, filename, mimeType string) *FileData {
+	if fd, ok := any(fileData).([]byte); ok {
+		// If it's a byte slice, encode it to base64
+		if len(fd) == 0 {
+			return nil
+		}
+		b64 := base64.StdEncoding.EncodeToString(fd)
+		size := int64(len(fd))
+		return CreateFileData(b64, filename, mimeType, size)
+	} else if fd, ok := any(fileData).(string); ok {
+		file_url := strings.TrimSpace(fd)
+		// If it's a valid url, return a FileData with that URL
+		if _, err := url.ParseRequestURI(file_url); err == nil {
+			return CreateFileData(file_url, filename, mimeType, 0)
+		}
+		// Otherwise, treat it as a base64 string
+		b64 := strings.TrimPrefix(fd, "data:")
+		b64 = strings.Split(b64, ",")[1] // Remove the prefix if present
+		decoded, err := base64.StdEncoding.DecodeString(b64)
+		if err != nil {
+			return nil // Invalid base64 string
+		}
+		size := int64(len(decoded))
+		return CreateFileData(b64, filename, mimeType, size)
+	}
+	return nil // Unsupported type
 }
 
 // Check if src is a FileData.
