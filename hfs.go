@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 )
@@ -45,6 +44,7 @@ func (h *HFSpace[I, O]) WithBearerToken(token string) *HFSpace[I, O] {
 }
 
 // WithTimeout sets a custom timeout on the underlying HTTP client.
+// Applies to both POST and GET requests.
 func (h *HFSpace[I, O]) WithTimeout(d time.Duration) *HFSpace[I, O] {
 	h.client.Timeout = d
 	return h
@@ -120,22 +120,33 @@ func (h *HFSpace[I, O]) Do(endpoint string, params ...I) ([]O, error) {
 	}
 
 	lines := strings.Split(string(res2), "\n")
-	var dataLine string
 
+	EventCompleted := false
+	var data string
 	for _, line := range lines {
+		if strings.HasPrefix(line, "event:") {
+			if strings.Contains(line, "error") {
+				return nil, fmt.Errorf("event error received")
+			}
+			if strings.Contains(line, "complete") {
+				EventCompleted = true
+			}
+		}
 		if strings.HasPrefix(line, "data:") {
-			dataLine = strings.TrimSpace(line[len("data:"):])
-			break
+			data = strings.TrimSpace(line[len("data:"):])
+			if EventCompleted {
+				break
+			}
 		}
 	}
 
-	if len(dataLine) == 0 {
+	if len(data) == 0 {
 		return nil, fmt.Errorf("no data in response")
 	}
 
 	// Final result
 	var Result []O
-	if err := json.Unmarshal([]byte(dataLine), &Result); err != nil {
+	if err := json.Unmarshal([]byte(data), &Result); err != nil {
 		return nil, fmt.Errorf("decode final response: %w", err)
 	}
 
@@ -149,60 +160,74 @@ type FileData struct {
 	URL      string         `json:"url,omitempty"`
 	Size     int64          `json:"size,omitempty"`
 	OrigName string         `json:"orig_name,omitempty"`
-	MimeType string         `json:"mime_type,omitempty"`
+	MimeType *string        `json:"mime_type"`
 	IsStream bool           `json:"is_stream"`
 	Meta     map[string]any `json:"meta,omitempty"`
 }
 
-func CreateFileData(url, origName, mimeType string, size int64) *FileData {
+func NewFileData(name string) *FileData {
 	return &FileData{
-		Path:     "",
-		URL:      url,
-		Size:     size,
-		OrigName: origName,
-		MimeType: mimeType,
+		OrigName: name,
 		IsStream: false,
+		MimeType: nil,
 		Meta:     map[string]any{"_type": "gradio.FileData"},
 	}
 }
 
-// Create FileData from bytes, base64 string, or URL.
-func ToFileData[T []byte | string](fileData T, filename, mimeType string) *FileData {
-	if fd, ok := any(fileData).([]byte); ok {
-		// If it's a byte slice, encode it to base64
-		if len(fd) == 0 {
-			return nil
-		}
-		b64 := base64.StdEncoding.EncodeToString(fd)
-		size := int64(len(fd))
-		return CreateFileData(b64, filename, mimeType, size)
-	} else if fd, ok := any(fileData).(string); ok {
-		file_url := strings.TrimSpace(fd)
-		// If it's a valid url, return a FileData with that URL
-		if _, err := url.ParseRequestURI(file_url); err == nil {
-			return CreateFileData(file_url, filename, mimeType, 0)
-		}
-		// Otherwise, treat it as a base64 string
-		b64 := strings.TrimPrefix(fd, "data:")
-		b64 = strings.Split(b64, ",")[1] // Remove the prefix if present
-		decoded, err := base64.StdEncoding.DecodeString(b64)
-		if err != nil {
-			return nil // Invalid base64 string
-		}
-		size := int64(len(decoded))
-		return CreateFileData(b64, filename, mimeType, size)
+func (fd *FileData) FromUrl(url string) (*FileData, error) {
+	fd.URL = url
+	fd.Path = url
+	fd.Size = 0
+	return fd, nil
+}
+
+func (fd *FileData) FromBytes(data []byte) (*FileData, error) {
+	if len(data) == 0 {
+		return nil, fmt.Errorf("data is empty")
 	}
-	return nil // Unsupported type
+
+	url, err := NewQuax(nil).rawUpload(data, fd.OrigName)
+	if err != nil {
+		return nil, fmt.Errorf("quax upload: %w", err)
+	}
+
+	fd.URL = url
+	fd.Path = url
+	fd.Size = int64(len(data))
+	return fd, nil
+}
+
+func (fd *FileData) FromBase64(b64 string) (*FileData, error) {
+	decoded, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return nil, fmt.Errorf("base64 decode: %w", err)
+	}
+	return fd.FromBytes(decoded)
 }
 
 // Check if src is a FileData.
 // Download content from FileData's URL if so.
 func GetFileData(src any) ([]byte, error) {
-	var fd *FileData
-	if err := json.Unmarshal([]byte(fmt.Sprintf("%v", src)), &fd); err != nil {
-		return nil, fmt.Errorf("not filedata: %w", err)
+	var fd FileData
+
+	switch v := src.(type) {
+	case FileData:
+		fd = v
+	case *FileData:
+		if v == nil {
+			return nil, fmt.Errorf("nil *FileData")
+		}
+		fd = *v
+	default:
+		b, err := json.Marshal(src)
+		if err != nil {
+			return nil, fmt.Errorf("filedata json encode: %w", err)
+		}
+		if err := json.Unmarshal(b, &fd); err != nil {
+			return nil, fmt.Errorf("filedata json decode: %w", err)
+		}
 	}
-	return FileDataDownload(fd, 30*time.Second)
+	return FileDataDownload(&fd, 30*time.Second)
 }
 
 // Download content from a FileData's HTTPS URL.

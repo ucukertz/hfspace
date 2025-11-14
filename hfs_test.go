@@ -1,7 +1,6 @@
 package hfs
 
 import (
-	"encoding/base64"
 	"io"
 	"net/http"
 	"testing"
@@ -11,9 +10,8 @@ import (
 var test_hf_token = "your-token"
 var test_name = "zerogpu-aoti-flux-1-kontext-dev" // your HF Space name
 var test_endpoint = "/infer"                      // your HF Space endpoint, e.g. "/predict" or "/infer"
-var test_input_url = "http://"                    // your test input url, will get downloaded when testing byte input
-var test_mime = "image/png"                       // your test input mime type
-var test_prompt = "make it happy"
+var test_input_url = "https://i.pinimg.com/474x/c2/c3/d2/c2c3d23c592772cafa4bad0d64d51416.jpg"
+var test_prompt = "make it smile"
 
 func Test_FileDataFromURL(t *testing.T) {
 	t.Parallel()
@@ -22,9 +20,12 @@ func Test_FileDataFromURL(t *testing.T) {
 	hfs.WithTimeout(300 * time.Second)
 	hfs.WithBearerToken(test_hf_token)
 
-	fdi := ToFileData(test_input_url, "input.png", test_mime)
+	fdi, err := NewFileData("").FromUrl(test_input_url)
+	if err != nil {
+		t.Fatalf("ToFileData returned error: %v", err)
+	}
 
-	res, err := hfs.Do(test_endpoint, fdi, test_prompt, 0, true, 2.5, 28)
+	res, err := hfs.Do(test_endpoint, fdi, test_prompt, 0, true, 2.5, 1 /*28*/)
 	if err != nil {
 		t.Fatalf("Do() returned error: %v", err)
 	}
@@ -40,9 +41,6 @@ func Test_FileDataFromURL(t *testing.T) {
 	if len(out) == 0 {
 		t.Fatalf("expected non-empty output")
 	}
-
-	b64 := base64.StdEncoding.EncodeToString(out)
-	t.Logf("Test_FileDataIO OK: %s", b64)
 }
 
 func Test_FileDataFromBytes(t *testing.T) {
@@ -67,8 +65,12 @@ func Test_FileDataFromBytes(t *testing.T) {
 		t.Fatalf("expected non-empty input data")
 	}
 
-	fdi := ToFileData(data, "input.png", test_mime)
-	res, err := hfs.Do(test_endpoint, fdi, test_prompt, 0, true, 2.5, 28)
+	fdi, err := NewFileData("").FromBytes(data)
+	if err != nil {
+		t.Fatalf("ToFileData returned error: %v", err)
+	}
+
+	res, err := hfs.Do(test_endpoint, fdi, test_prompt, 0, true, 2.5, 1 /*28*/)
 	if err != nil {
 		t.Fatalf("Do() returned error: %v", err)
 	}
@@ -83,6 +85,4 @@ func Test_FileDataFromBytes(t *testing.T) {
 	if len(out) == 0 {
 		t.Fatalf("expected non-empty output")
 	}
-	b64 := base64.StdEncoding.EncodeToString(out)
-	t.Logf("Test_FileDataFromBytes OK: %s", b64)
 }
