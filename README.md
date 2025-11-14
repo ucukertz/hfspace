@@ -1,60 +1,205 @@
-# HFSpace
+# HFS
 
-**HFSpace** is a lightweight Go client for interacting with [Hugging Face Spaces](https://huggingface.co/spaces) that expose Gradio-style APIs.
+**HFS** is a lightweight Go client for interacting with [Hugging Face Spaces](https://huggingface.co/spaces) that expose Gradio-style APIs.
 
-It simplifies the typical two-step interaction pattern — where a POST request returns an event ID, followed by a second GET request to retrieve the actual result — into a single, streamlined call.
+It simplifies this workflow by providing a single `.Do()` method that:
+1. Sends your inputs  
+2. Retrieves the event ID  
+3. Fetches the final result stream  
+4. Returns typed output  
 
 ---
 
 ## ✨ Features
 
-- 🌐 Connect to any Hugging Face Space endpoint  
+- 🌐 Connect to any Hugging Face Spaces endpoint  
 - 🔁 Handles event ID + result fetching  
 - 🔐 Supports custom headers and bearer tokens  
 - ⚙️ Generic over input and output types  
-- 🧼 Minimal, ergonomic API — just call `.Do()` and you're done  
-- 🛡️ No dependencies outside the standard library
+- 🧩 FileData support for inputs and outputs  
+- 🧼 Minimal API — just call `.Do()`
 
 ---
 
-## 🚀 Example
+## Installation
 
-Let's say your inference URL is `https://your-space.hf.space/gradio_api/call/fn`
+```bash
+go get github.com/ucukertz/hfs
+```
+
+---
+
+## Simple Usage Example
 
 ```go
 package main
 
 import (
-	"fmt"
-
-	"github.com/yourusername/hfspace"
+    "fmt"
+    "github.com/ucukertz/hfs"
 )
 
 func main() {
-	space := hfspace.NewHFSpace[any, any]("your-space").
-		WithBearerToken("your-token")
+    space := hfs.NewHfs[string, string]("your-space-name").
+        WithBearerToken("your-hf-token")
 
-	output, err := space.Do("/fn", param1, param2, param3)
-	if err != nil {
-		panic(err)
-	}
+    result, err := space.Do("/your-endpoint", "your-input-string")
+    if err != nil {
+        panic(err)
+    }
 
-	for _, item := range output {
-		fmt.Println(item)
-	}
+    for _, item := range result {
+        fmt.Println(item)
+    }
 }
 ```
 
-## 🛠️ Use Cases
+---
 
-- Easier calls to Hugging Face Spaces from Go applications
-- Integrate Spaces into backend services or pipelines
-- Skip boilerplate HTTP logic and focus on Hugging Face Spaces results
+## Using `any` for Mixed Input/Output Types
+
+```go
+package main
+
+import (
+    "fmt"
+    "github.com/ucukertz/hfs"
+)
+
+func main() {
+    space := hfs.NewHfs[any, any]("your-space-name").
+        WithBearerToken("your-hf-token")
+
+    output, err := space.Do(
+        "/your-endpoint",
+        "some text",
+        123,
+        true,
+        4.5,
+        map[string]any{"key": "value"},
+    )
+    if err != nil {
+        panic(err)
+    }
+
+    fmt.Println(output)
+}
+```
 
 ---
 
-## 📦 Installation
+## Using `FileData` as Hugging Face Spaces Input
 
-```bash
-go get github.com/ucukertz/hfspace
+```go
+package main
+
+import (
+    "fmt"
+    "github.com/ucukertz/hfs"
+)
+
+func main() {
+    fileInput, err := hfs.NewFileData("input.jpg").
+        FromUrl("https://example.com/image.jpg")
+    if err != nil {
+        panic(err)
+    }
+
+    space := hfs.NewHfs[any, any]("your-space-name").
+        WithBearerToken("your-hf-token")
+
+    output, err := space.Do(
+        "/your-endpoint",
+        fileInput,
+        "your-prompt",
+        42,
+    )
+    if err != nil {
+        panic(err)
+    }
+
+    fmt.Println(output)
+}
 ```
+
+---
+
+## Handling `FileData` Output
+
+```go
+package main
+
+import (
+    "os"
+    "github.com/ucukertz/hfs"
+)
+
+func main() {
+    space := hfs.NewHfs[any, any]("your-space-name").
+        WithBearerToken("your-hf-token")
+
+    out, err := space.Do("/your-endpoint", "your-input")
+    if err != nil {
+        panic(err)
+    }
+
+    bytes, err := hfs.GetFileData(out[0])
+    if err != nil {
+        panic(err)
+    }
+
+    os.WriteFile("output.png", bytes, 0644)
+}
+```
+
+---
+
+## Notes
+
+- `GetFileData()` automatically extracts and downloads the content of a `FileData` output.
+- Use `FileData.FromUrl()`, `.FromBytes()`, or `.FromBase64()` to construct uploadable inputs.
+- `.WithBearerToken()`, `.WithTimeout()`, `.WithUserAgent()`, and `.WithHTTPClient()` allow full customization.
+- This module uses the "curl" API so public URL for file input is [mandatory](https://www.gradio.app/guides/querying-gradio-apps-with-curl) (see "Files" section). `FileData.FromBytes()` and `.FromBase64()` use `Quax` to conveniently achieve this.
+
+---
+
+## Extra Quax
+
+The **Quax** helper is included as a public file uploader that returns a direct URL.  
+This module uses it internally for `FileData.FromBytes()` and `.FromBase64()`, you can also use it directly to upload files to the Quax hosting API and get a public URL.
+
+### Quax Usage Example
+
+```go
+package main
+
+import (
+    "fmt"
+    "os"
+    "github.com/ucukertz/hfs"
+)
+
+func main() {
+    q := hfs.NewQuax(nil)
+
+    data, _ := os.ReadFile("local-file.jpg")
+
+	// Can also use filepath directly (no second arg)
+    url, err := q.Upload(data, "local-file.jpg")
+    if err != nil {
+        panic(err)
+    }
+
+    fmt.Println("Uploaded to:", url)
+}
+```
+
+---
+
+## License
+
+Distributed under the MIT License. See `LICENSE` for more information.
+
+## Author
+
+Created by **[ucukertz](https://github.com/ucukertz)**.
