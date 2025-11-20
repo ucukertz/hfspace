@@ -18,6 +18,7 @@ It simplifies this workflow by providing a single `.Do()` method that:
 - ⚙️ Generic over input and output types  
 - 🧩 FileData support for inputs and outputs  
 - 🧼 Minimal API — just call `.Do()`
+- 🛡️ No dependencies outside the standard library
 
 ---
 

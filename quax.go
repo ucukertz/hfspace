@@ -3,6 +3,7 @@ package hfs
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -11,9 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"time"
-
-	"github.com/pkg/errors"
-	"github.com/wabarc/helper"
 )
 
 const (
@@ -63,7 +61,7 @@ func (quax *Quax) Upload(v ...any) (string, error) {
 			return uri.String(), nil
 		}
 		switch {
-		case helper.Exists(path):
+		case FileExists(path):
 			return parse(quax.fileUpload(path))
 		default:
 			return "", errors.New(`path invalid`)
@@ -128,7 +126,7 @@ func (quax *Quax) fileUpload(path string) (string, error) {
 	}
 	defer file.Close()
 
-	if size := helper.FileSize(path); size > 209715200 {
+	if size := FileSize(path); size > 209715200 {
 		return "", fmt.Errorf("file too large, size: %d MB", size/1024/1024)
 	}
 
@@ -175,4 +173,25 @@ func (quax *Quax) fileUpload(path string) (string, error) {
 	}
 
 	return qr.Files[0].URL, nil
+}
+
+// FileSeze returns file attritubes of size about an inode, and
+// it's unit alway is bytes.
+func FileSize(filepath string) int64 {
+	f, err := os.Stat(filepath)
+	if err != nil {
+		return 0
+	}
+
+	return f.Size()
+}
+
+// FileExists reports whether the named file or directory exists.
+func FileExists(name string) bool {
+	if _, err := os.Stat(name); err != nil {
+		if os.IsNotExist(err) {
+			return false
+		}
+	}
+	return true
 }
