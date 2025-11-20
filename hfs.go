@@ -71,12 +71,12 @@ func (h *HFSpace[I, O]) Do(endpoint string, params ...I) ([]O, error) {
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, fmt.Errorf("request body marshall: %w", err)
+		return nil, fmt.Errorf("hfs req body marshall: %w", err)
 	}
 
 	req, err := http.NewRequest("POST", fullURL, bytes.NewBuffer(body))
 	if err != nil {
-		return nil, fmt.Errorf("post request create: %w", err)
+		return nil, fmt.Errorf("hfs post req create: %w", err)
 	}
 	for k, v := range h.Headers {
 		req.Header.Set(k, v)
@@ -84,7 +84,7 @@ func (h *HFSpace[I, O]) Do(endpoint string, params ...I) ([]O, error) {
 
 	resp, err := h.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("post request exec: %w", err)
+		return nil, fmt.Errorf("hfs post req exec: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -93,7 +93,7 @@ func (h *HFSpace[I, O]) Do(endpoint string, params ...I) ([]O, error) {
 		Eventid string `json:"event_id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&idResp); err != nil {
-		return nil, fmt.Errorf("event ID decode: %w", err)
+		return nil, fmt.Errorf("hfs event ID decode: %w", err)
 	}
 	eventID := idResp.Eventid
 
@@ -102,7 +102,7 @@ func (h *HFSpace[I, O]) Do(endpoint string, params ...I) ([]O, error) {
 
 	getReq, err := http.NewRequest("GET", streamURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("get request create: %w", err)
+		return nil, fmt.Errorf("hfs get req create: %w", err)
 	}
 	for k, v := range h.Headers {
 		getReq.Header.Set(k, v)
@@ -110,13 +110,13 @@ func (h *HFSpace[I, O]) Do(endpoint string, params ...I) ([]O, error) {
 
 	resp2, err := h.client.Do(getReq)
 	if err != nil {
-		return nil, fmt.Errorf("get request send: %w", err)
+		return nil, fmt.Errorf("hfs get req exec: %w", err)
 	}
 	defer resp2.Body.Close()
 
 	res2, err := io.ReadAll(resp2.Body)
 	if err != nil {
-		return nil, fmt.Errorf("get response read: %w", err)
+		return nil, fmt.Errorf("hfs get resp read: %w", err)
 	}
 
 	lines := strings.Split(string(res2), "\n")
@@ -126,7 +126,7 @@ func (h *HFSpace[I, O]) Do(endpoint string, params ...I) ([]O, error) {
 	for _, line := range lines {
 		if strings.HasPrefix(line, "event:") {
 			if strings.Contains(line, "error") {
-				return nil, fmt.Errorf("event error received")
+				return nil, fmt.Errorf("hfs event error")
 			}
 			if strings.Contains(line, "complete") {
 				EventCompleted = true
@@ -141,13 +141,13 @@ func (h *HFSpace[I, O]) Do(endpoint string, params ...I) ([]O, error) {
 	}
 
 	if len(data) == 0 {
-		return nil, fmt.Errorf("no data in response")
+		return nil, fmt.Errorf("hfs no data in resp")
 	}
 
 	// Final result
 	var Result []O
 	if err := json.Unmarshal([]byte(data), &Result); err != nil {
-		return nil, fmt.Errorf("decode final response: %w", err)
+		return nil, fmt.Errorf("hfs decode final resp: %w", err)
 	}
 
 	return Result, nil
@@ -183,12 +183,12 @@ func (fd *FileData) FromUrl(url string) (*FileData, error) {
 
 func (fd *FileData) FromBytes(data []byte) (*FileData, error) {
 	if len(data) == 0 {
-		return nil, fmt.Errorf("data is empty")
+		return nil, fmt.Errorf("hfs empty data")
 	}
 
 	url, err := NewQuax(nil).rawUpload(data, fd.OrigName)
 	if err != nil {
-		return nil, fmt.Errorf("quax upload: %w", err)
+		return nil, fmt.Errorf("hfs quax upload: %w", err)
 	}
 
 	fd.URL = url
@@ -200,7 +200,7 @@ func (fd *FileData) FromBytes(data []byte) (*FileData, error) {
 func (fd *FileData) FromBase64(b64 string) (*FileData, error) {
 	decoded, err := base64.StdEncoding.DecodeString(b64)
 	if err != nil {
-		return nil, fmt.Errorf("base64 decode: %w", err)
+		return nil, fmt.Errorf("hfs base64 decode: %w", err)
 	}
 	return fd.FromBytes(decoded)
 }
@@ -215,16 +215,16 @@ func GetFileData(src any) ([]byte, error) {
 		fd = v
 	case *FileData:
 		if v == nil {
-			return nil, fmt.Errorf("nil *FileData")
+			return nil, fmt.Errorf("hfs nil *FileData")
 		}
 		fd = *v
 	default:
 		b, err := json.Marshal(src)
 		if err != nil {
-			return nil, fmt.Errorf("filedata json encode: %w", err)
+			return nil, fmt.Errorf("hfs filedata json encode: %w", err)
 		}
 		if err := json.Unmarshal(b, &fd); err != nil {
-			return nil, fmt.Errorf("filedata json decode: %w", err)
+			return nil, fmt.Errorf("hfs filedata json decode: %w", err)
 		}
 	}
 	return FileDataDownload(&fd, 30*time.Second)
@@ -235,11 +235,11 @@ func GetFileData(src any) ([]byte, error) {
 func FileDataDownload(fileData *FileData, timeout time.Duration) ([]byte, error) {
 	// Validate input
 	if fileData == nil {
-		return nil, fmt.Errorf("filedata is nil")
+		return nil, fmt.Errorf("hfs filedata is nil")
 	}
 
 	if fileData.URL == "" {
-		return nil, fmt.Errorf("URL is empty")
+		return nil, fmt.Errorf("hfs filedata URL is empty")
 	}
 
 	// Create HTTP client with timeout
@@ -250,27 +250,27 @@ func FileDataDownload(fileData *FileData, timeout time.Duration) ([]byte, error)
 	// Create the request
 	req, err := http.NewRequest("GET", fileData.URL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("hfs filedata get req create: %w", err)
 	}
 
 	// Send the request
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to download file: %w", err)
+		return nil, fmt.Errorf("hfs filedata get req exec: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected HTTP status: %d %s", resp.StatusCode, resp.Status)
+		return nil, fmt.Errorf("hfs filedata get resp status: %d %s", resp.StatusCode, resp.Status)
 	}
 
 	// Read the response body
 	content, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+		return nil, fmt.Errorf("hfs filedata get resp read: %w", err)
 	}
 	if len(content) == 0 {
-		return nil, fmt.Errorf("downloaded content is empty")
+		return nil, fmt.Errorf("hfs downloaded content is empty")
 	}
 
 	return content, nil
